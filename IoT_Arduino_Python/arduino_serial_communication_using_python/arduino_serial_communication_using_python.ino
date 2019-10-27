@@ -88,6 +88,13 @@ String string_from_atmega2560 = "{\"D\":[1,2,3,4,5,6,7,8,9,10,11,12]}";
 String string_from_dragino;
 String method_type = "";
 String digital_value_string = "";
+String analog_value_string = "";
+
+int first_comma_index = 0;
+int second_comma_index = 0;
+String first_value_from_dragino = "";
+String second_value_from_dragino = "";
+String third_value_from_dragino = "";
 
 void setup() {  
   Serial.begin(115200);  //From Ar9331  Black Window
@@ -95,48 +102,65 @@ void setup() {
 }  
   
 void loop() { 
-    if(Serial.available()>0){
+    if(Serial.available()){
           string_from_dragino = Serial.readStringUntil("\n");
           Serial1.println(string_from_dragino);
+          first_comma_index = string_from_dragino.indexOf(',');
+          second_comma_index = string_from_dragino.indexOf(',',first_comma_index + 1);
+        
+          first_value_from_dragino = string_from_dragino.substring(0, first_comma_index);
+          second_value_from_dragino = string_from_dragino.substring(first_comma_index + 1, second_comma_index);
+          third_value_from_dragino = string_from_dragino.substring(second_comma_index + 1);
     }
-    Serial.println();
-    
-    int first_comma_index = string_from_dragino.indexOf(',');
-    int second_comma_index = string_from_dragino.indexOf(',',first_comma_index + 1);
+    //Serial.println();
 
-    String first_value_from_dragino = string_from_dragino.substring(0, first_comma_index);
-    String second_value_from_dragino = string_from_dragino.substring(first_comma_index + 1, second_comma_index);
-    String third_value_from_dragino = string_from_dragino.substring(second_comma_index + 1);
+    method_type = second_value_from_dragino;
+    //second_value_from_dragino = "";
 
     //Serial1.println(first_value_from_dragino);
-    Serial1.println(second_value_from_dragino);
+    //Serial1.println(method_type);
     //Serial1.println(third_value_from_dragino);
     
     //Serial.println(string_from_atmega2560); // print to *OPENWRT*
     delay(1000);
-   
-    //fun();
 
-    if (second_value_from_dragino == "digital") {
+    if (method_type == "digital") {
        DigitalData();
     }
-
-    //string_from_dragino = "";
-    
+    else if(method_type == "analog"){
+      AnalogData();
+      }
+    else if(method_type == "relay"){
+      int a = 1;
+      int b = 1;
+      String c = String(a);
+      String d = String(b);
+      setRelayData(c,d);
+      }
+      else if(method_type == "relay1"){
+      int a = 1;
+      int b = 0;
+      String c = String(a);
+      String d = String(b);
+      setRelayData1(c,d);
+      }
+    method_type = "";  
 }
-
-void fun(){
-  Serial.print("From fun()");
-  Serial.flush();
-  }
 
 ///////////////////////////////////////////////////////DIGITAL_DATA
 void DigitalData(){
+  digital_value_string = "getData,digital,[";
   for (int i = 0; i < 12; i++) {
     dig_value[i] = digitalRead(dig[i]);
     delay(100);
-    digital_value_string = digital_value_string + String(dig_value[i]);
+    if(i<11){
+      digital_value_string = digital_value_string + String(dig_value[i]) + ",";
+      }
+      else{
+      digital_value_string = digital_value_string + String(dig_value[i]);  
+      }    
    }
+  digital_value_string = digital_value_string + "]";
   Serial.println(digital_value_string);
   Serial.flush();
   digital_value_string = "";
@@ -154,6 +178,17 @@ void AnalogData(){
   adc_value[2] = analog3.getValue();//((analog3.getValue()*5.0)/1023);
   adc_value[3] = analog4.getValue();//((analog4.getValue().*5.0)/1023);
 
+  analog_value_string = "getData,analog,[";
+  for(int i = 0; i <4; i++){
+    if(i<3){
+      analog_value_string = analog_value_string + String(adc_value[i]) + ",";
+    }
+    else{
+      analog_value_string = analog_value_string + String(adc_value[i]);
+    }
+  }
+  analog_value_string = analog_value_string + "]";
+
   for (int i = 0; i < 4; i++){
     if (adc_value[i] == 0) {
       digitalWrite(adc_ind[i], LOW);
@@ -162,6 +197,9 @@ void AnalogData(){
       digitalWrite(adc_ind[i], HIGH);
     }
   }
+  Serial.println(analog_value_string);
+  Serial.flush();
+  analog_value_string = "";  
 }
 
 //////////////////////////////////////////////////////RELAY_DATA
@@ -192,3 +230,39 @@ void PwmDataAcq(){
   }
 }
 
+void setRelayData(String pin, String state) {
+  int port = pin.toInt();
+  int value = state.toInt();
+
+  /*int relay_port_size = root_relay["port"].size();
+  int relay_value_size = root_relay["value"].size();
+
+  for (int pv = 0; pv < relay_port_size; pv++) {
+    port = int(root_relay["port"][pv]);
+    value = int(root_relay["value"][pv]);
+    EEPROM.write(relay_address[port - 1], value);
+    relay_value[port - 1] = EEPROM.read(relay_address[port - 1]);
+    digitalWrite(relays[port - 1], relay_value[port - 1]); // relay on/off
+    digitalWrite(relay_ind[port - 1], relay_value[port - 1]); //relay indicator led on/off
+  }*/
+
+  EEPROM.write(relay_address[port - 1], value);
+  relay_value[port - 1] = EEPROM.read(relay_address[port - 1]);
+  digitalWrite(relays[port - 1], relay_value[port - 1]); // relay on/off
+  digitalWrite(relay_ind[port - 1], relay_value[port - 1]); //relay indicator led on/off
+
+  Serial.println(pin + state);
+  
+}
+
+void setRelayData1(String pin, String state){
+  int port = pin.toInt();
+  int value = state.toInt();
+
+  EEPROM.write(relay_address[port - 1], value);
+  relay_value[port - 1] = EEPROM.read(relay_address[port - 1]);
+  digitalWrite(relays[port - 1], relay_value[port - 1]); // relay on/off
+  digitalWrite(relay_ind[port - 1], relay_value[port - 1]); //relay indicator led on/off
+
+  Serial.println(pin + state);
+}
