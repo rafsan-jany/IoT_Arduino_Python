@@ -92,9 +92,11 @@ String analog_value_string = "";
 
 int first_comma_index = 0;
 int second_comma_index = 0;
+int third_comma_index = 0;
 String first_value_from_dragino = "";
 String second_value_from_dragino = "";
 String third_value_from_dragino = "";
+String fourth_value_from_dragino = "";
 
 void setup() {  
   Serial.begin(115200);  //From Ar9331  Black Window
@@ -109,19 +111,23 @@ void loop() {
           second_comma_index = string_from_dragino.indexOf(',',first_comma_index + 1);
         
           first_value_from_dragino = string_from_dragino.substring(0, first_comma_index);
-          second_value_from_dragino = string_from_dragino.substring(first_comma_index + 1, second_comma_index);
-          third_value_from_dragino = string_from_dragino.substring(second_comma_index + 1);
+          if(first_value_from_dragino == "getData"){
+            second_value_from_dragino = string_from_dragino.substring(first_comma_index + 1, second_comma_index);
+            third_value_from_dragino = string_from_dragino.substring(second_comma_index + 1);
+          }
+          else if(first_value_from_dragino == "setData"){
+            second_value_from_dragino = string_from_dragino.substring(first_comma_index + 1, second_comma_index);
+
+            third_comma_index = string_from_dragino.indexOf(',',second_comma_index + 1);
+            third_value_from_dragino = string_from_dragino.substring(second_comma_index + 1, third_comma_index);
+            Serial.println(third_value_from_dragino);
+            
+            fourth_value_from_dragino = string_from_dragino.substring(third_comma_index + 1);
+            Serial.println(fourth_value_from_dragino);
+            }
     }
-    //Serial.println();
 
     method_type = second_value_from_dragino;
-    //second_value_from_dragino = "";
-
-    //Serial1.println(first_value_from_dragino);
-    //Serial1.println(method_type);
-    //Serial1.println(third_value_from_dragino);
-    
-    //Serial.println(string_from_atmega2560); // print to *OPENWRT*
     delay(1000);
 
     if (method_type == "digital") {
@@ -131,18 +137,10 @@ void loop() {
       AnalogData();
       }
     else if(method_type == "relay"){
-      int a = 1;
-      int b = 1;
-      String c = String(a);
-      String d = String(b);
-      setRelayData(c,d);
+      setRelayData(third_value_from_dragino,fourth_value_from_dragino);
       }
-      else if(method_type == "relay1"){
-      int a = 1;
-      int b = 0;
-      String c = String(a);
-      String d = String(b);
-      setRelayData1(c,d);
+    else if(method_type == "pwm"){
+      setPwmData(third_value_from_dragino,fourth_value_from_dragino);
       }
     method_type = "";  
 }
@@ -265,4 +263,21 @@ void setRelayData1(String pin, String state){
   digitalWrite(relay_ind[port - 1], relay_value[port - 1]); //relay indicator led on/off
 
   Serial.println(pin + state);
+}
+
+void setPwmData(String pin, String number) {
+  int port = pin.toInt();
+  int value = number.toInt();
+
+    if (value <= 100) {
+      EEPROM.write(pwm_address[port - 1], map(value, 0, 100, 0, 255));
+      pwm_value[port - 1] = EEPROM.read(pwm_address[port - 1]);
+      analogWrite(pwms[port - 1], pwm_value[port - 1]); //pwm level control
+      if (pwm_value[port - 1] > 0) {
+        digitalWrite(pwm_ind[port - 1], HIGH); //pwm led indicator on
+      }
+      else {
+        digitalWrite(pwm_ind[port - 1], LOW); //pwm led indicator off
+      }
+    }
 }
