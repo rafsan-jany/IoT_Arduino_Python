@@ -7,6 +7,7 @@
 #include <SPI.h>
 #include <mcp_can.h>
 #include <stdio.h>
+#include <ArduinoJson.h>
 
 #define DIGITAL_PIN_IN_1 2 //Digital INPUT
 #define DIGITAL_PIN_IN_2 10 //Digital INPUT
@@ -84,19 +85,7 @@ ResponsiveAnalogRead analog2(ANALOG_PIN_2, true);
 ResponsiveAnalogRead analog3(ANALOG_PIN_3, true);
 ResponsiveAnalogRead analog4(ANALOG_PIN_4, true);
 
-String string_from_atmega2560 = "{\"D\":[1,2,3,4,5,6,7,8,9,10,11,12]}";
-String string_from_dragino;
-String method_type = "";
-String digital_value_string = "";
-String analog_value_string = "";
-
-int first_comma_index = 0;
-int second_comma_index = 0;
-int third_comma_index = 0;
-String first_value_from_dragino = "";
-String second_value_from_dragino = "";
-String third_value_from_dragino = "";
-String fourth_value_from_dragino = "";
+String string_from_dragino = "";
 
 void setup() {  
   Serial.begin(115200);  //From Ar9331  Black Window
@@ -107,132 +96,57 @@ void loop() {
     if(Serial.available()){
           string_from_dragino = Serial.readStringUntil("\n");
           Serial1.println(string_from_dragino);
-          first_comma_index = string_from_dragino.indexOf(',');
-          second_comma_index = string_from_dragino.indexOf(',',first_comma_index + 1);
-        
-          first_value_from_dragino = string_from_dragino.substring(0, first_comma_index);
-          if(first_value_from_dragino == "getData"){
-            second_value_from_dragino = string_from_dragino.substring(first_comma_index + 1, second_comma_index);
-            third_value_from_dragino = string_from_dragino.substring(second_comma_index + 1);
-          }
-          else if(first_value_from_dragino == "setData"){
-            second_value_from_dragino = string_from_dragino.substring(first_comma_index + 1, second_comma_index);
-
-            third_comma_index = string_from_dragino.indexOf(',',second_comma_index + 1);
-            third_value_from_dragino = string_from_dragino.substring(second_comma_index + 1, third_comma_index);
-            Serial.println(third_value_from_dragino);
-            
-            fourth_value_from_dragino = string_from_dragino.substring(third_comma_index + 1);
-            Serial.println(fourth_value_from_dragino);
-            }
     }
-
-    method_type = second_value_from_dragino;
-    delay(1000);
-
-    if (method_type == "digital") {
-       DigitalData();
-    }
-    else if(method_type == "analog"){
-      AnalogData();
-      }
-    else if(method_type == "relay"){
-      setRelayData(third_value_from_dragino,fourth_value_from_dragino);
-      }
-    else if(method_type == "pwm"){
-      setPwmData(third_value_from_dragino,fourth_value_from_dragino);
-      }
-    method_type = "";  
+    getRequestData(string_from_dragino);
 }
 
-///////////////////////////////////////////////////////DIGITAL_DATA
-void DigitalData(){
-  digital_value_string = "getData,digital,[";
-  for (int i = 0; i < 12; i++) {
-    dig_value[i] = digitalRead(dig[i]);
-    delay(100);
-    if(i<11){
-      digital_value_string = digital_value_string + String(dig_value[i]) + ",";
-      }
-      else{
-      digital_value_string = digital_value_string + String(dig_value[i]);  
-      }    
-   }
-  digital_value_string = digital_value_string + "]";
-  Serial.println(digital_value_string);
-  Serial.flush();
-  digital_value_string = "";
-}
-
-////////////////////////////////////////////////////////////ANALOG_DATA
-void AnalogData(){
-  analog1.update();
-  analog2.update();
-  analog3.update();
-  analog4.update();
-
-  adc_value[0] = analog1.getValue();//((analog1.getValue()*5.0)/1023);
-  adc_value[1] = analog2.getValue();//((analog2.getValue()*5.0)/1023);
-  adc_value[2] = analog3.getValue();//((analog3.getValue()*5.0)/1023);
-  adc_value[3] = analog4.getValue();//((analog4.getValue().*5.0)/1023);
-
-  analog_value_string = "getData,analog,[";
-  for(int i = 0; i <4; i++){
-    if(i<3){
-      analog_value_string = analog_value_string + String(adc_value[i]) + ",";
-    }
-    else{
-      analog_value_string = analog_value_string + String(adc_value[i]);
-    }
+void getRequestData(String message){
+  String test = message;
+  StaticJsonBuffer<400> jsonBufferConfigMqttMessage;
+  JsonObject& requestObj = jsonBufferConfigMqttMessage.parseObject(test);
+  String method_type = requestObj["type"];
+  
+  if (method_type == "setRelayData") {
+    setRelayData(test);
   }
-  analog_value_string = analog_value_string + "]";
-
-  for (int i = 0; i < 4; i++){
-    if (adc_value[i] == 0) {
-      digitalWrite(adc_ind[i], LOW);
-    }
-    else {
-      digitalWrite(adc_ind[i], HIGH);
-    }
+  else if (method_type == "setPwmData") {
+    setPwmData(test);
   }
-  Serial.println(analog_value_string);
-  Serial.flush();
-  analog_value_string = "";  
+  else if (method_type == "getRelayStatus") {
+    getRelayStatus();
+  }
+  else if (method_type == "getPwmStatus") {
+    getPwmStatus();
+  }
+  //else if (method_type == "setConfigData") {
+    //setConfigData(test);
+  //}
+  //else if (method_type == "setModBusData") {
+    //setModBusData(test);
+  //}
+  //else if (method_type == "getDhtData") {
+   // getDhtData();
+  //}
+  //else if (method_type == "removeData") {
+    //removeData(test);
+  //}
+  //else if (method_type == "getCanBusData") {
+    //getCanBusData();
+  //}
+  //else if (method_type == "version") {
+   //VersionNumber();
+  //}
 }
 
-//////////////////////////////////////////////////////RELAY_DATA
-void RelayDataAcq(){
-  for (int i = 0; i < 4; i++) {
-    relay_value[i] = EEPROM.read(relay_address[i]);
-    if (relay_value[i] == 0) {
-      digitalWrite(relay_ind[i], LOW);
-    }
-    else {
-      digitalWrite(relay_ind[i], HIGH);
-    }
-    delay(1);
-  }
-}
+void setRelayData(String message) {
+  String test = message;
+  int port = 0;
+  int value = 0;
 
-///////////////////////////////////////////////PWM_DATA
-void PwmDataAcq(){
-  for (int i = 0; i < 4; i++) {
-    pwm_value[i] = EEPROM.read(pwm_address[i]);
-    if (pwm_value[i] == 0) {
-      digitalWrite(pwm_ind[i], LOW);
-    }
-    else {
-      digitalWrite(pwm_ind[i], HIGH);
-    }
-    delay(1);
-  }
-}
+  StaticJsonBuffer<200> jsonBuffer;
+  JsonObject& root_relay = jsonBuffer.parseObject(test);
 
-void setRelayData(String pin, String state) {
-  int port = pin.toInt();
-  int value = state.toInt();
-
-  /*int relay_port_size = root_relay["port"].size();
+  int relay_port_size = root_relay["port"].size();
   int relay_value_size = root_relay["value"].size();
 
   for (int pv = 0; pv < relay_port_size; pv++) {
@@ -242,33 +156,32 @@ void setRelayData(String pin, String state) {
     relay_value[port - 1] = EEPROM.read(relay_address[port - 1]);
     digitalWrite(relays[port - 1], relay_value[port - 1]); // relay on/off
     digitalWrite(relay_ind[port - 1], relay_value[port - 1]); //relay indicator led on/off
-  }*/
+  }
 
-  EEPROM.write(relay_address[port - 1], value);
-  relay_value[port - 1] = EEPROM.read(relay_address[port - 1]);
-  digitalWrite(relays[port - 1], relay_value[port - 1]); // relay on/off
-  digitalWrite(relay_ind[port - 1], relay_value[port - 1]); //relay indicator led on/off
+  StaticJsonBuffer<200> jsonBuffer_relay;
+  JsonObject& relay_dict = jsonBuffer_relay.createObject();
+  JsonArray& relay_status_array = relay_dict.createNestedArray("relay");
 
-  Serial.println(pin + state);
-  
+  for (int z = 0; z < 4; z++) {
+    relay_status_array.add(relay_value[z]);
+  }
+  Serial.println(message);
 }
 
-void setRelayData1(String pin, String state){
-  int port = pin.toInt();
-  int value = state.toInt();
+void setPwmData(String message) {
+  String test = message;
+  int port = 0;
+  int value = 0;
 
-  EEPROM.write(relay_address[port - 1], value);
-  relay_value[port - 1] = EEPROM.read(relay_address[port - 1]);
-  digitalWrite(relays[port - 1], relay_value[port - 1]); // relay on/off
-  digitalWrite(relay_ind[port - 1], relay_value[port - 1]); //relay indicator led on/off
+  StaticJsonBuffer<400> jsonBuffer;
+  JsonObject& root_pwm = jsonBuffer.parseObject(test);
 
-  Serial.println(pin + state);
-}
+  int pwm_port_size = root_pwm["port"].size();
+  int pwm_value_size = root_pwm["value"].size();
 
-void setPwmData(String pin, String number) {
-  int port = pin.toInt();
-  int value = number.toInt();
-
+  for (int pv = 0; pv < pwm_port_size; pv++) {
+    port = int(root_pwm["port"][pv]);
+    value = int(root_pwm["value"][pv]);
     if (value <= 100) {
       EEPROM.write(pwm_address[port - 1], map(value, 0, 100, 0, 255));
       pwm_value[port - 1] = EEPROM.read(pwm_address[port - 1]);
@@ -280,4 +193,44 @@ void setPwmData(String pin, String number) {
         digitalWrite(pwm_ind[port - 1], LOW); //pwm led indicator off
       }
     }
+  }
+  
+  StaticJsonBuffer<400> jsonBuffer_pwm;
+  JsonObject& pwm_dict = jsonBuffer_pwm.createObject();
+  JsonArray& pwm_status_array = pwm_dict.createNestedArray("pwm");
+
+  for (int z = 0; z < 4; z++) {
+    pwm_status_array.add(pwm_value[z]);
+  }
+  Serial.println(message);
 }
+
+void getRelayStatus() {
+  String relay_status = "{\"type\":\"getRelayStatus\",\"relay\":[";
+
+  for (int z = 0; z < 4; z++) {
+    if(z<3){
+      relay_status = relay_status + String(relay_value[z]) + ",";
+      }
+    else{
+      relay_status = relay_status + String(relay_value[z]) + "]}";
+      }
+  }
+  Serial.println(relay_status);
+}
+
+void getPwmStatus() {
+
+  String pwm_status = "{\"type\":\"getPwmStatus\",\"pwm\":[";
+
+    for (int z = 0; z < 4; z++) {
+    if(z<3){
+      pwm_status = pwm_status + String(pwm_value[z]) + ",";
+      }
+    else{
+      pwm_status = pwm_status + String(pwm_value[z]) + "]}";
+      }
+  }
+  Serial.println(pwm_status);
+}
+
