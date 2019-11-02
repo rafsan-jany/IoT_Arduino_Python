@@ -62,6 +62,8 @@ int dig_value[12] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
 int adc[4] = {ANALOG_PIN_1, ANALOG_PIN_2, ANALOG_PIN_3, ANALOG_PIN_4};
 int adc_ind[4] = {ANALOG_IND_1, ANALOG_IND_2, ANALOG_IND_3, ANALOG_IND_4};
 int adc_value[4] = {0, 0, 0, 0};
+int adc_address[4] = {12, 13, 14, 15};
+int adc_port_value[4] = {0, 0, 0, 0};
 
 int pwms[4] = {PWM_PIN_OUT_1, PWM_PIN_OUT_2, PWM_PIN_OUT_3, PWM_PIN_OUT_4};
 int pwm_ind[4] = {PWM_PIN_IND_1, PWM_PIN_IND_2, PWM_PIN_IND_3, PWM_PIN_IND_4};
@@ -77,6 +79,7 @@ int intPin[4] = {INT_PIN_IN_1, INT_PIN_IN_2, INT_PIN_IN_3, INT_PIN_IN_4};
 int intPin_value[4] = {0, 0, 0, 0};
 int intPin_address[4] = {8, 9, 10, 11};
 int intPin_noti[4] = {0, 0, 0, 0};
+int intt_address_digvalue[4] = {31, 32, 33, 34};
 
 ResponsiveAnalogRead analog1(ANALOG_PIN_1, true);
 ResponsiveAnalogRead analog2(ANALOG_PIN_2, true);
@@ -97,6 +100,14 @@ String second_value_from_dragino = "";
 String third_value_from_dragino = "";
 String fourth_value_from_dragino = "";
 
+String relay_string = "";
+String pwm_string = "";
+
+int INTT_flag = 0;
+int intt_address = 21;
+int intt_array_size = 0;
+int INTT_array[4];
+
 int FLAG = 0;
 dht DHT;
 
@@ -114,9 +125,10 @@ void setup() {
     pinMode(pwms[i], OUTPUT); // PWM Pins Assigned as Output
     pinMode(pwm_ind[i], OUTPUT); // PWM Indicator Pins Assigned as Output
     pinMode(adc_ind[i], OUTPUT); // Analog Indicator Pins Assigned as Output
-    digitalWrite(adc_ind[i], LOW);
+    //digitalWrite(adc_ind[i], LOW);
     relay_value[i] = EEPROM.read(relay_address[i]);
     pwm_value[i] = EEPROM.read(pwm_address[i]);
+    adc_port_value[i] = EEPROM.read(adc_address[i]);
 
     if (relay_value[i] == 255) {
       EEPROM.write(relay_address[i], 0);
@@ -125,28 +137,51 @@ void setup() {
       pwm_value[i] = 0;
       EEPROM.write(intPin_address[i], 0);
       intPin_value[i] = 0;
+      EEPROM.write(adc_address[i], 0);
+      adc_port_value[i] = 0;
     } 
+    INTT_flag = EEPROM.read(intt_address);
+    if (INTT_flag == 255)
+    {
+      EEPROM.write(intt_address, 0);
+      INTT_flag = 0;
+    }
     digitalWrite(relays[i], relay_value[i]);
     digitalWrite(relay_ind[i], relay_value[i]);
     digitalWrite(pwms[i], pwm_value[i]);
     digitalWrite(pwm_ind[i], pwm_value[i]);    
   }
 
-  RelayDataAcq();
-  PwmDataAcq();
+  INTT_flag = EEPROM.read(intt_address);
+
+  if (INTT_flag == 1)
+  {
+    configuration();
+  }
+
+  RelayDataAcq(); //relay indicator led on/off function
+  PwmDataAcq(); //pwm indicator led on/off function
+  AnalogDataAcq();
+  //inttAction();
+  
 }  
   
 void loop() { 
-    if(Serial.available()>0){
-          string_from_dragino = Serial.readStringUntil(10);
-          Serial1.println(string_from_dragino);
-          Serial.flush();
-          FLAG = 1;
-    }
-    if(FLAG == 1){
-      formattingData(string_from_dragino);
-      FLAG = 0;
-      }         
+  if(Serial.available()>0){
+        string_from_dragino = Serial.readStringUntil(10);
+        Serial1.println(string_from_dragino);
+        Serial.flush();
+        FLAG = 1;
+  }
+  if(FLAG == 1){
+    formattingData(string_from_dragino);
+    FLAG = 0;
+    } 
+  INTT_flag = EEPROM.read(intt_address);
+  if (INTT_flag == 1)
+  {
+    check_intt();
+  }       
 }
 
 void formattingData(String str){
@@ -163,10 +198,10 @@ void formattingData(String str){
 
        third_comma_index = str.indexOf(',',second_comma_index + 1);
        third_value_from_dragino = str.substring(second_comma_index + 1, third_comma_index);
-       Serial.println(third_value_from_dragino);
+       //Serial.println(third_value_from_dragino); 
             
        fourth_value_from_dragino = str.substring(third_comma_index + 1);
-       Serial.println(fourth_value_from_dragino);
+       //Serial.println(fourth_value_from_dragino);
        }
 
     method_type = second_value_from_dragino;
@@ -174,10 +209,10 @@ void formattingData(String str){
     delay(1000);
 
     if (method_type == "digital") {
-       DigitalData(third_value_from_dragino);
+       getDigitalSensorData(third_value_from_dragino);
       }
     else if(method_type == "analog"){
-      AnalogData(third_value_from_dragino);
+      getAnalogSensorData(third_value_from_dragino);
       }
     else if(method_type == "relay"){
       setRelayData(third_value_from_dragino,fourth_value_from_dragino);
@@ -186,16 +221,25 @@ void formattingData(String str){
       setPwmData(third_value_from_dragino,fourth_value_from_dragino);
       }
     else if(method_type == "relayStatus"){
-       getRelayStatus();    
+       getRelayStatus(third_value_from_dragino);    
       }
-    else if(method_type == "pwmStatus"){
-      getPwmStatus();
+    else if(method_type =="pwmStatus"){
+      getPwmStatus(third_value_from_dragino);
       }
     else if(method_type == "dht"){
       getDhtData(third_value_from_dragino);
       }
     else if(method_type == "can"){
       getCanData(third_value_from_dragino);
+      }
+    else if(method_type == "setanalogpin"){
+      setAnalogPin(third_value_from_dragino,fourth_value_from_dragino);
+      }
+    else if(method_type == "resetanalogpin"){
+      resetAnalogPin(third_value_from_dragino,fourth_value_from_dragino);
+      }
+    else if(method_type == "intt"){
+      intt(third_value_from_dragino,fourth_value_from_dragino);
       }
     else{
       Serial.println("Invalid Datasets");
@@ -204,7 +248,7 @@ void formattingData(String str){
 }
 
 ///////////////////////////////////////////////////////DIGITAL_DATA
-void DigitalData(String pin){
+void getDigitalSensorData(String pin){
   int port = pin.toInt();
   
   digital_value_string = "getData,digital,[";
@@ -232,8 +276,10 @@ void DigitalData(String pin){
 }
 
 ////////////////////////////////////////////////////////////ANALOG_DATA
-void AnalogData(String pin){
+void getAnalogSensorData(String pin){
   int port = pin.toInt();
+
+  int analog_sensor_read[4] = {0, 0, 0, 0};
   
   analog1.update();
   analog2.update();
@@ -244,36 +290,87 @@ void AnalogData(String pin){
   adc_value[1] = analog2.getValue();//((analog2.getValue()*5.0)/1023);
   adc_value[2] = analog3.getValue();//((analog3.getValue()*5.0)/1023);
   adc_value[3] = analog4.getValue();//((analog4.getValue().*5.0)/1023);
+  
+  for( int i = 0; i < 4; i++){
+    if(adc_port_value[i] == 1){
+      analog_sensor_read[i] = adc_value[i];
+      }
+    else{
+      analog_sensor_read[i] = 0; 
+      }
+  }
 
   analog_value_string = "getData,analog,[";
   if(port == 99){ 
    for(int i = 0; i <4; i++){
     if(i<3){
-      analog_value_string = analog_value_string + String(adc_value[i]) + ",";
+      analog_value_string = analog_value_string + String(analog_sensor_read[i]) + ",";
     }
     else{
-      analog_value_string = analog_value_string + String(adc_value[i]);
+      analog_value_string = analog_value_string + String(analog_sensor_read[i]);
     }
   }
  }
  else{
-  analog_value_string = analog_value_string + String(adc_value[port - 1]);
+  analog_value_string = analog_value_string + String(analog_sensor_read[port - 1]);
   }
   analog_value_string = analog_value_string + "]";
-
-  for (int i = 0; i < 4; i++){
-    if (adc_value[i] == 0) {
-      digitalWrite(adc_ind[i], LOW);
-    }
-    else {
-      digitalWrite(adc_ind[i], HIGH);
-    }
-  }
+  
   Serial.println(analog_value_string);
   Serial.flush();
   analog_value_string = "";  
 }
 
+//////////////////////////////////////////////////////////////////////////////
+void setAnalogPin(String pin, String state){
+  int port = pin.toInt();
+  EEPROM.write(adc_address[port - 1],1);   
+
+  for(int i = 0; i < 4; i++){
+  adc_port_value[i] = EEPROM.read(adc_address[i]);
+  if(adc_port_value[i] == 1){
+    digitalWrite(adc_ind[i], HIGH);
+    }
+   else{
+    digitalWrite(adc_ind[i], LOW);
+    }
+  }
+
+  Serial.println(port);
+  Serial.flush();
+}
+
+//////////////////////////////////////////////////////////////////////////////
+void resetAnalogPin(String pin, String state){
+  int port = pin.toInt();
+  EEPROM.write(adc_address[port - 1],0);   
+
+  for(int i = 0; i < 4; i++){
+  adc_port_value[i] = EEPROM.read(adc_address[i]);
+  if(adc_port_value[i] == 1){
+    digitalWrite(adc_ind[i], HIGH);
+    }
+   else{
+    digitalWrite(adc_ind[i], LOW);
+    }
+  }
+
+  Serial.println(port);
+  Serial.flush();
+}
+
+/////////////////////////////////////////////////////////////////
+void AnalogDataAcq(){
+  for(int i = 0; i < 4; i++){
+    adc_port_value[i] = EEPROM.read(adc_address[i]);
+    if(adc_port_value[i] == 1){
+      digitalWrite(adc_ind[i], HIGH);
+      }
+     else{
+      digitalWrite(adc_ind[i], LOW);
+      }
+    }
+}
 
 ////////////////////////////////////////////////////////getDHTdata
 void getDhtData(String pin){
@@ -295,19 +392,49 @@ void getDhtData(String pin){
   dht_value_string = "";
 }
 
+//////////////////////////////////////////////////////////CAN_DATA
+void getCanData(String NONE) {
+  MCP_CAN CAN(12); // CS/SS pin
+  unsigned char can_len = 0;
+  unsigned char can_buf[8];
+  unsigned int canID;
+  String candata = "";
+  candata = "getData,can,[";
+ 
+  CAN.begin(CAN_250KBPS); /////////canbus initialization
+  if (CAN_MSGAVAIL == CAN.checkReceive())
+  {
+    CAN.readMsgBuf(&can_len, can_buf);
+    canID = CAN.getCanId();
+
+    for (int i = 0; i < can_len; i++){
+      if(i < can_len - 1){
+         candata = candata + String((can_buf[i])) + ",";
+        }
+      else{
+        candata = candata + String((can_buf[i])) + "]";
+        }
+    }
+  }
+
+  Serial.println(candata);
+  
+  SPI.end();
+  pinMode(dig[6], INPUT);
+  delay(10);
+}
+
 ///////////////////////////////////////////////////////setRelayData
 void setRelayData(String pin, String state) {
   int port = pin.toInt();
   int value = state.toInt();
-
-  String relay_string = "";
 
   EEPROM.write(relay_address[port - 1], value);
   relay_value[port - 1] = EEPROM.read(relay_address[port - 1]);
   digitalWrite(relays[port - 1], relay_value[port - 1]); // relay on/off
   digitalWrite(relay_ind[port - 1], relay_value[port - 1]); //relay indicator led on/off
 
-  relay_string = "setRelayData,relay,[" + String(pin) + String(state) + "]";
+  relay_string = "setData,relay," + String(port) + "," + String(value);
   Serial.println(relay_string);
   Serial.flush();
 }
@@ -316,9 +443,7 @@ void setRelayData(String pin, String state) {
 void setPwmData(String pin, String state) {
   int port = pin.toInt();
   int value = state.toInt();
-
-  String pwm_string = "";
-
+  
     if (value <= 100) {
       EEPROM.write(pwm_address[port - 1], map(value, 0, 100, 0, 255));
       pwm_value[port - 1] = EEPROM.read(pwm_address[port - 1]);
@@ -330,39 +455,52 @@ void setPwmData(String pin, String state) {
         digitalWrite(pwm_ind[port - 1], LOW); //pwm led indicator off
       }
     }
-   pwm_string = "setPwmData,pwm,[" + String(pin) + String(state) + "]";
-
-  Serial.println(pwm_string);
-  Serial.flush();
+    
+   pwm_string = "seData,pwm," + String(port) + "," + String(value);
+   Serial.println(pwm_string);
+   Serial.flush();
 }
 
-void getRelayStatus() {
+void getRelayStatus(String pin) {
+  int port = pin.toInt();
+  
   String relay_status = "[";
-  for (int z = 0; z < 4; z++) {
-    if(z<3){
-      relay_status = relay_status + String(relay_value[z]) + ",";
-    }
-    else{
-    relay_status = relay_status + String(relay_value[z]) + "]";
+  if(port == 99){
+    for (int z = 0; z < 4; z++) {
+      if(z<3){
+        relay_status = relay_status + String(relay_value[z]) + ",";
+      }
+      else{
+      relay_status = relay_status + String(relay_value[z]) + "]";
+      }
     }
   }
+  else{
+    relay_status = relay_status + String(relay_value[port -1]) + "]";
+    }
   Serial.println(relay_status);
-  Serial.flush();
 }
 
 
-void getPwmStatus() {
+void getPwmStatus(String pin) {
+  int port = pin.toInt();
+  
   String pwm_status = "[";
-
-  for (int z = 0; z < 4; z++) {
-    if(z<3){
-      pwm_status = pwm_status + String(pwm_value[z]) + ",";
-      }
-    else{
-      pwm_status = pwm_status + String(pwm_value[z]) + "]";
-      }
+  if(port == 99){
+    for (int z = 0; z < 4; z++) {
+      if(z<3){
+        pwm_status = pwm_status + String(pwm_value[z]) + ",";
+        }
+      else{
+        pwm_status = pwm_status + String(pwm_value[z]) + "]";
+        }
+    }
   }
+  else{
+      pwm_status = pwm_status + String(pwm_value[port -1]) + "]";
+    }
   Serial.println(pwm_status);
+  Serial.flush();
 }
 
 //////////////////////////////////////////////////////RELAY_DATA
@@ -392,33 +530,146 @@ void PwmDataAcq(){
     delay(1);
   }
 }
-//////////////////////////////////////////////////////////CAN_DATA
-void getCanData(String NONE) {
-  MCP_CAN CAN(12); // CS/SS pin
-  unsigned char can_len = 0;
-  unsigned char can_buf[8];
-  unsigned int canID;
-  String candata = "";
-  candata = "getData,can,[";
-  //////////////////////////////////////CANBus End///////////////
-  CAN.begin(CAN_250KBPS); /////////canbus initialization
-  if (CAN_MSGAVAIL == CAN.checkReceive())
-  {
-    CAN.readMsgBuf(&can_len, can_buf);
-    canID = CAN.getCanId();
 
-    for (int i = 0; i < can_len; i++){
-      if(i < can_len - 1){
-         candata = candata + String((can_buf[i])) + ",";
-        }
-      else{
-        candata = candata + String((can_buf[i])) + "]";
-        }
+//////////////////////////////////////////////////////////////////
+
+void intt(String pin, String state){
+  int port = pin.toInt();
+  
+ if(port == 5 ){
+  EEPROM.write(intt_address_digvalue[0],5);
+  }
+  else{
+   EEPROM.write(intt_address_digvalue[0],0); 
+    }
+  if(port == 6){
+  EEPROM.write(intt_address_digvalue[1],6);
+  }
+  else{
+   EEPROM.write(intt_address_digvalue[1],0); 
+    }
+  if(port == 11){
+  EEPROM.write(intt_address_digvalue[2],11);
+  }
+  else{
+   EEPROM.write(intt_address_digvalue[2],0); 
+    }
+  if(port == 12){
+  EEPROM.write(intt_address_digvalue[3],12);
+  }
+  else{
+  EEPROM.write(intt_address_digvalue[3],0);
+    }
+  
+  Serial1.println("INTT");
+  Serial1.println();
+}
+
+////////////////////////////////////////////////////////INTT_DATA
+void configuration()
+{
+  //INTT_array[4] = {5,6,11,12};
+  int check = 0;
+
+  for(int i = 0; i <4; i++){
+    check = EEPROM.read(intt_address_digvalue[i]);
+    if(check>0){
+      INTT_array[i] = EEPROM.read(intt_address_digvalue[i]);
+      intt_array_size++;
+      }
+    }
+  
+  if (intt_array_size == 0)
+  {
+    EEPROM.write(intt_address, 0);
+    INTT_flag = 0;
+  }
+  else
+  {
+    EEPROM.write(intt_address, 1);
+    INTT_flag = 1;
+  }
+
+  int intt_index = 0;
+  for (int i = 0; i < 4; i++)
+  {
+    if (intPin[i] == (INTT_array[intt_index] - 1))
+    {
+      intt_index++;
+      intPin_value[i] = 1;
+    }
+    else
+    {
+      intPin_value[i] = 0;
     }
   }
-  
-  SPI.end();
-  pinMode(dig[6], INPUT);
-  delay(10);
+  if (intPin_value[0] == 1)
+  {
+    attachInterrupt(digitalPinToInterrupt(dig[intPin[0]]), int1, RISING);
+  }
+  else
+  {
+    detachInterrupt(digitalPinToInterrupt(dig[intPin[0]]));
+  }
+  if (intPin_value[1] == 1)
+  {
+    attachInterrupt(digitalPinToInterrupt(dig[intPin[1]]), int2, RISING);
+  }
+  else
+  {
+    detachInterrupt(digitalPinToInterrupt(dig[intPin[1]]));
+  }
+  if (intPin_value[2] == 1)
+  {
+    attachInterrupt(digitalPinToInterrupt(dig[intPin[2]]), int3, RISING);
+  }
+  else
+  {
+    detachInterrupt(digitalPinToInterrupt(dig[intPin[2]]));
+  }
+  if (intPin_value[3] == 1)
+  {
+    attachInterrupt(digitalPinToInterrupt(dig[intPin[3]]), int4, RISING);
+  }
+  else
+  {
+    detachInterrupt(digitalPinToInterrupt(dig[intPin[3]]));
+  }
 }
+////////////////////////////////////////////////////////////////
+void int1()
+{
+  intPin_noti[0] = 1;
+}
+void int2()
+{
+  intPin_noti[1] = 1;
+}
+void int3()
+{
+  intPin_noti[2] = 1;
+}
+void int4()
+{
+  intPin_noti[3] = 1;
+}
+
+void check_intt()
+{
+   String intt_string = "\"id\":";
+   String intt_string_1 = intt_string ;
+  
+  for (int i = 0; i < 4; i++)
+  {
+    if (intPin_noti[i] == 1)
+    {
+      delay(100);
+      String intt_string_5 = "{" + intt_string_1 + "\"port\":" +String(intPin[i] + 1) + "," + "\"value\":1" + "}";
+      intPin_noti[i] = 0;
+      Serial.println(intt_string_5);
+      Serial.flush();    
+    }
+  }
+}
+
 
