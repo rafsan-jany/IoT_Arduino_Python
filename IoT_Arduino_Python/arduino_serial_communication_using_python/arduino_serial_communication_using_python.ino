@@ -105,8 +105,7 @@ String pwm_string = "";
 
 int INTT_flag = 0;
 int intt_address = 21;
-//int intt_array_size = 0;
-int INTT_array[4] = {0,0,0,0};
+int intt_pin_array[4] = {0,0,0,0};
 
 int FLAG = 0;
 dht DHT;
@@ -125,7 +124,7 @@ void setup() {
     pinMode(pwms[i], OUTPUT); // PWM Pins Assigned as Output
     pinMode(pwm_ind[i], OUTPUT); // PWM Indicator Pins Assigned as Output
     pinMode(adc_ind[i], OUTPUT); // Analog Indicator Pins Assigned as Output
-    //digitalWrite(adc_ind[i], LOW);
+    
     relay_value[i] = EEPROM.read(relay_address[i]);
     pwm_value[i] = EEPROM.read(pwm_address[i]);
     adc_port_value[i] = EEPROM.read(adc_address[i]);
@@ -148,7 +147,7 @@ void setup() {
 
   RelayDataAcq(); //relay indicator led on/off function
   PwmDataAcq(); //pwm indicator led on/off function
-  AnalogDataAcq();
+  AnalogDataAcq(); //analog sensor led on/off function
 
   INTT_flag = EEPROM.read(intt_address);
   if (INTT_flag == 255)
@@ -158,9 +157,8 @@ void setup() {
   }
   else if(INTT_flag == 1)
   {
-    configuration();
+    configuration(); //interrupt configuration function
   }
-  
 }  
   
 void loop() { 
@@ -177,7 +175,7 @@ void loop() {
   INTT_flag = EEPROM.read(intt_address);
   if (INTT_flag == 1)
   {
-    check_intt();
+    checkIntt(); //function for checking whether intterrupt is occured
   }        
 }
 
@@ -236,13 +234,14 @@ void formattingData(String str){
       resetAnalogPin(third_value_from_dragino,fourth_value_from_dragino);
       }
     else if(method_type == "setintt"){
-      setintt(third_value_from_dragino,fourth_value_from_dragino);
+      setIntt(third_value_from_dragino,fourth_value_from_dragino);
       }
     else if(method_type == "resetintt"){
-      resetintt(third_value_from_dragino,fourth_value_from_dragino);
+      resetIntt(third_value_from_dragino,fourth_value_from_dragino);
       }
     else{
       Serial.println("Invalid Datasets");
+      Serial.flush();
       }
     method_type = "";  
 }
@@ -324,6 +323,7 @@ void getAnalogSensorData(String pin){
 //////////////////////////////////////////////////////////////////////////////
 void setAnalogPin(String pin, String state){
   int port = pin.toInt();
+  String set_analog_pin_string = "";
   EEPROM.write(adc_address[port - 1],1);   
 
   for(int i = 0; i < 4; i++){
@@ -336,13 +336,15 @@ void setAnalogPin(String pin, String state){
     }
   }
 
-  Serial.println(port);
+  set_analog_pin_string = "setData,setanalogpin," + String(port);
+  Serial.println(set_analog_pin_string);
   Serial.flush();
 }
 
 //////////////////////////////////////////////////////////////////////////////
 void resetAnalogPin(String pin, String state){
   int port = pin.toInt();
+  String reset_analog_pin_string = "";
   EEPROM.write(adc_address[port - 1],0);   
 
   for(int i = 0; i < 4; i++){
@@ -355,7 +357,8 @@ void resetAnalogPin(String pin, String state){
     }
   }
 
-  Serial.println(port);
+  reset_analog_pin_string = "setData,resetanalogpin," + String(port);
+  Serial.println(reset_analog_pin_string);
   Serial.flush();
 }
 
@@ -382,6 +385,7 @@ void getDhtData(String pin){
   int chk = DHT.read11(dig[port - 1]);
   dht_temp = DHT.temperature;
   dht_hum = DHT.humidity;
+  delay(1000);
 
   dht_value_string = "getData,dht,[";
   dht_value_string = dht_value_string + String(dht_temp) + "," + String(dht_hum) + "]";
@@ -418,6 +422,7 @@ void getCanData(String NONE) {
   }
 
   Serial.println(candata);
+  Serial.flush();
   
   SPI.end();
   pinMode(dig[6], INPUT);
@@ -530,14 +535,12 @@ void PwmDataAcq(){
   }
 }
 
-/////////////////////////////////////////////////////////////////////////intt
-void setintt(String pin, String state){
+/////////////////////////////////////////////////////////////////////////setIntt
+void setIntt(String pin, String state){
   int port = pin.toInt();
   
  if(port == 5 ){
   EEPROM.write(intt_address_digvalue[0],5);
-  Serial1.println("5");
-  Serial.flush();
   }
   if(port == 6){
   EEPROM.write(intt_address_digvalue[1],6);
@@ -548,20 +551,21 @@ void setintt(String pin, String state){
   if(port == 12){
   EEPROM.write(intt_address_digvalue[3],12);
   }
-    
-  Serial1.println("INTT");
-  Serial1.println();
   configuration();
+
+  String setintt_string = "setData,setintt," + pin;
+  Serial.println(setintt_string);
+  Serial.flush();  
+
+  setintt_string = "";
 }
 
 ///////////////////////////////////////////////////////////////////////resetintt
-void resetintt(String pin, String state){
+void resetIntt(String pin, String state){
   int port = pin.toInt();
   
  if(port == 5 ){
   EEPROM.write(intt_address_digvalue[0],255);
-  Serial1.println("5");
-  Serial.flush();
   }
   if(port == 6){
   EEPROM.write(intt_address_digvalue[1],255);
@@ -572,54 +576,41 @@ void resetintt(String pin, String state){
   if(port == 12){
   EEPROM.write(intt_address_digvalue[3],255);
   }
-    
-  Serial1.println("RESETINTT");
-  Serial1.println();
   configuration();
+
+  String resetintt_string = "setData,resetintt," + pin;
+  Serial.println(resetintt_string);
+  Serial.flush();  
 }
 ////////////////////////////////////////////////////////configuration
 void configuration(){
-  Serial1.println("configuration");
-  Serial.flush();
-  //INTT_array[4] = {5,6,11,12};
-  int check = 0;
-  int intt_array_size = 0;
+  //intt_pin_array[4] = {5,6,11,12};
+  int check_intt_pin = 0;
+  int intt_pin_array_size = 0;
 
   for(int i = 0; i <4; i++){
-    check = EEPROM.read(intt_address_digvalue[i]); //[5,255,255,255]
-    Serial1.println(check);
-    Serial.flush();
+    check_intt_pin = EEPROM.read(intt_address_digvalue[i]); //[5,255,255,255]
     intPin_value[i] = 0;
-    if(check<255){
-      INTT_array[i] = EEPROM.read(intt_address_digvalue[i]);//[5,0,0,0]
-      Serial1.println(String(INTT_array[i]) + "Inside check");
-      Serial.flush();
+    if(check_intt_pin<255){
+      intt_pin_array[i] = EEPROM.read(intt_address_digvalue[i]);//[5,0,0,0]// intt_pin_array[4] = {0,0,0,0}, initially declared global
       intPin_value[i] = 1;
-      intt_array_size++; //2
+      intt_pin_array_size++; //If intt pin is found, increment the intt_size
       }
     }
   
-  if (intt_array_size == 0){
+  if (intt_pin_array_size == 0){
     EEPROM.write(intt_address, 0);
     INTT_flag = 0;
-    Serial1.println("NO");
-    Serial1.println();
   }
   else{
     EEPROM.write(intt_address, 1);
     INTT_flag = 1;
-    Serial1.println("OK");
-    Serial1.println();
   }
   if (intPin_value[0] == 1){
-    Serial1.println("intPin_value[0]");
-    Serial1.flush();
     attachInterrupt(digitalPinToInterrupt(dig[intPin[0]]), int1, RISING);
   }
   else{
     detachInterrupt(digitalPinToInterrupt(dig[intPin[0]]));
-    Serial1.println("detachInterrupt_intPin_value[0]");
-    Serial1.flush();
   }
   if (intPin_value[1] == 1){
     attachInterrupt(digitalPinToInterrupt(dig[intPin[1]]), int2, RISING);   
@@ -635,42 +626,35 @@ void configuration(){
   }
   if (intPin_value[3] == 1){
     attachInterrupt(digitalPinToInterrupt(dig[intPin[3]]), int4, RISING);
-    Serial1.println("intPin_value[3]");
-    Serial1.flush();
   }
   else{
     detachInterrupt(digitalPinToInterrupt(dig[intPin[3]]));
-    Serial1.println("detachInterrupt_intPin_value[3]");
-    Serial1.flush();
   }
 }
 ////////////////////////////////////////////////////////////////
 void int1(){
   intPin_noti[0] = 1;
-  Serial1.println("int1()");
-  Serial1.flush();
 }
 void int2(){
   intPin_noti[1] = 1;
 }
 void int3(){
   intPin_noti[2] = 1;
-  Serial1.println("int3()");
-  Serial1.flush();
 }
 void int4(){
   intPin_noti[3] = 1;
 }
-////////////////////////////////////////////////////////////////check_intt
-void check_intt(){ 
+////////////////////////////////////////////////////////////////checkIntt
+void checkIntt(){ 
   for (int i = 0; i < 4; i++){
     if (intPin_noti[i] == 1){
       delay(100);
-      String intt_string_5 = "setData,intt," + String(intPin[i] + 1);
+      String intt_string = "setData,intt," + String(intPin[i] + 1);
       intPin_noti[i] = 0;
-      Serial.println(intt_string_5);
+      Serial.println(intt_string);
       Serial.flush();    
     }
   }
 }
+////////////////////////////////////////////////////////////////////////////
 
