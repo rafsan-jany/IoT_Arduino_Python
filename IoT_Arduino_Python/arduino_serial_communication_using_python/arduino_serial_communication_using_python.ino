@@ -1,3 +1,15 @@
+/*
+ *  1. analog sensor set and reset method function added
+ *  2. interrupt set and reset function added with interrupt mode (1 --> RISING, 2 --> FALLING, 3 --> CHANGE, 4 --> LOW)
+ *  3. analog sensor indicators blink from eeprom data
+ *  4. dht added
+ *  5. relay and relay indicator added
+ *  6. pwm and pwm indicator added
+ *  7. relay status show (all and single)
+ *  8. pwm status show (all and single)
+ *  9. analog sensors data read (all and single)
+ *  10. digital sensors data read (all and single)
+ */
 #include <ResponsiveAnalogRead.h>
 #include <ModbusRtu.h>
 #include <FileIO.h>
@@ -60,18 +72,18 @@ int dig[12] = {DIGITAL_PIN_IN_1, DIGITAL_PIN_IN_2, DIGITAL_PIN_IN_3, DIGITAL_PIN
 int dig_value[12] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
 
 int adc[4] = {ANALOG_PIN_1, ANALOG_PIN_2, ANALOG_PIN_3, ANALOG_PIN_4};
-int adc_ind[4] = {ANALOG_IND_1, ANALOG_IND_2, ANALOG_IND_3, ANALOG_IND_4};
+int adc_indicator[4] = {ANALOG_IND_1, ANALOG_IND_2, ANALOG_IND_3, ANALOG_IND_4};
 int adc_value[4] = {0, 0, 0, 0};
 int adc_address[4] = {12, 13, 14, 15};
 int adc_port_value[4] = {0, 0, 0, 0};
 
 int pwms[4] = {PWM_PIN_OUT_1, PWM_PIN_OUT_2, PWM_PIN_OUT_3, PWM_PIN_OUT_4};
-int pwm_ind[4] = {PWM_PIN_IND_1, PWM_PIN_IND_2, PWM_PIN_IND_3, PWM_PIN_IND_4};
+int pwm_indicator[4] = {PWM_PIN_IND_1, PWM_PIN_IND_2, PWM_PIN_IND_3, PWM_PIN_IND_4};
 int pwm_value[4] = {0, 0, 0, 0};
 int pwm_address[4] = {4, 5, 6, 7};
 
 int relays[4] = {RELAY_PIN_OUT_1, RELAY_PIN_OUT_2, RELAY_PIN_OUT_3, RELAY_PIN_OUT_4};
-int relay_ind[4] = {RELAY_PIN_IND_1, RELAY_PIN_IND_2, RELAY_PIN_IND_3, RELAY_PIN_IND_4};
+int relay_indicator[4] = {RELAY_PIN_IND_1, RELAY_PIN_IND_2, RELAY_PIN_IND_3, RELAY_PIN_IND_4};
 int relay_value[4] = {0, 0, 0, 0};
 int relay_address[4] = {0, 1, 2, 3};
 
@@ -79,7 +91,9 @@ int intPin[4] = {INT_PIN_IN_1, INT_PIN_IN_2, INT_PIN_IN_3, INT_PIN_IN_4};
 int intPin_value[4] = {0, 0, 0, 0};
 int intPin_address[4] = {8, 9, 10, 11};
 int intPin_noti[4] = {0, 0, 0, 0};
-int intt_address_digvalue[4] = {31, 32, 33, 34};
+int intPin_stored_value_address[4] = {31, 32, 33, 34};
+int intPin_mode_address[4] = {35, 36, 37, 38};
+int intPin_mode = "";
 
 ResponsiveAnalogRead analog1(ANALOG_PIN_1, true);
 ResponsiveAnalogRead analog2(ANALOG_PIN_2, true);
@@ -110,20 +124,40 @@ int intt_pin_array[4] = {0,0,0,0};
 int FLAG = 0;
 dht DHT;
 
+uint16_t au16data[16];    
+uint8_t u8state;    
+boolean modbus_req = false;   
+unsigned long previousMillis = 0;
+unsigned long currentMillis = 0;
+     
+Modbus master(0,2,13);
+//Modbus master(0); // this is master and RS-232 or USB-FTDI via software serial
+modbus_t telegram;    
+boolean sentData = false;
+
+uint8_t slave = 0;
+uint8_t func = 0;
+uint16_t regAddr = 0;
+uint16_t coils = 0;
+
 void setup() {  
   Serial.begin(115200);  // OPENWRT SERIAL
   Serial1.begin(115200);  //ARDUINO SERIAL
 
-   for (int i = 0; i < 12; i++) {
-    pinMode(dig[i], INPUT);
+  master.begin(9600);
+  master.setTimeOut( 2000 );
+  u8state = 0;
+
+  for (int i = 0; i < 12; i++) {
+   pinMode(dig[i], INPUT);
   }
 
   for (int i = 0; i < 4; i++) {
     pinMode(relays[i], OUTPUT); // Relay Pins Assigned as Output
-    pinMode(relay_ind[i], OUTPUT); // Relay Indicator Pins Assigned as Output
+    pinMode(relay_indicator[i], OUTPUT); // Relay Indicator Pins Assigned as Output
     pinMode(pwms[i], OUTPUT); // PWM Pins Assigned as Output
-    pinMode(pwm_ind[i], OUTPUT); // PWM Indicator Pins Assigned as Output
-    pinMode(adc_ind[i], OUTPUT); // Analog Indicator Pins Assigned as Output
+    pinMode(pwm_indicator[i], OUTPUT); // PWM Indicator Pins Assigned as Output
+    pinMode(adc_indicator[i], OUTPUT); // Analog Indicator Pins Assigned as Output
     
     relay_value[i] = EEPROM.read(relay_address[i]);
     pwm_value[i] = EEPROM.read(pwm_address[i]);
@@ -140,14 +174,14 @@ void setup() {
       adc_port_value[i] = 0;
     } 
     digitalWrite(relays[i], relay_value[i]);
-    digitalWrite(relay_ind[i], relay_value[i]);
+    digitalWrite(relay_indicator[i], relay_value[i]);
     digitalWrite(pwms[i], pwm_value[i]);
-    digitalWrite(pwm_ind[i], pwm_value[i]); 
+    digitalWrite(pwm_indicator[i], pwm_value[i]); 
   }
 
   RelayDataAcq(); //relay indicator led on/off function
   PwmDataAcq(); //pwm indicator led on/off function
-  AnalogDataAcq(); //analog sensor led on/off function
+  AnalogDataAcq(); //analog sensor indicator led on/off function
 
   INTT_flag = EEPROM.read(intt_address);
   if (INTT_flag == 255)
@@ -175,8 +209,13 @@ void loop() {
   INTT_flag = EEPROM.read(intt_address);
   if (INTT_flag == 1)
   {
-    checkIntt(); //function for checking whether intterrupt is occured
-  }        
+    checkInterrupt(); //function for checking whether intterrupt is occured
+  } 
+
+  if(modbus_req){
+    modbus();
+    modbus_req = false;
+  }
 }
 
 void formattingData(String str){
@@ -234,10 +273,10 @@ void formattingData(String str){
       resetAnalogPin(third_value_from_dragino,fourth_value_from_dragino);
       }
     else if(method_type == "setintt"){
-      setIntt(third_value_from_dragino,fourth_value_from_dragino);
+      setInterrupt(third_value_from_dragino,fourth_value_from_dragino);
       }
     else if(method_type == "resetintt"){
-      resetIntt(third_value_from_dragino,fourth_value_from_dragino);
+      resetInterrupt(third_value_from_dragino,fourth_value_from_dragino);
       }
     else{
       Serial.println("Invalid Datasets");
@@ -251,7 +290,8 @@ void getDigitalSensorData(String pin){
   int port = pin.toInt();
   
   digital_value_string = "getData,digital,[";
-  if(port == 99){
+  //if(port == 99){/////////////////////////////////////////////////////////////////
+  if(port == 0){
     for (int i = 0; i < 12; i++) {
       dig_value[i] = digitalRead(dig[i]);
       delay(100);
@@ -300,7 +340,8 @@ void getAnalogSensorData(String pin){
   }
 
   analog_value_string = "getData,analog,[";
-  if(port == 99){ 
+  //if(port == 99){ //////////////////////////////////////////////////////////////////////////
+  if(port == 0){
    for(int i = 0; i <4; i++){
     if(i<3){
       analog_value_string = analog_value_string + String(analog_sensor_read[i]) + ",";
@@ -329,10 +370,10 @@ void setAnalogPin(String pin, String state){
   for(int i = 0; i < 4; i++){
   adc_port_value[i] = EEPROM.read(adc_address[i]);
   if(adc_port_value[i] == 1){
-    digitalWrite(adc_ind[i], HIGH);
+    digitalWrite(adc_indicator[i], HIGH);
     }
    else{
-    digitalWrite(adc_ind[i], LOW);
+    digitalWrite(adc_indicator[i], LOW);
     }
   }
 
@@ -350,10 +391,10 @@ void resetAnalogPin(String pin, String state){
   for(int i = 0; i < 4; i++){
   adc_port_value[i] = EEPROM.read(adc_address[i]);
   if(adc_port_value[i] == 1){
-    digitalWrite(adc_ind[i], HIGH);
+    digitalWrite(adc_indicator[i], HIGH);
     }
    else{
-    digitalWrite(adc_ind[i], LOW);
+    digitalWrite(adc_indicator[i], LOW);
     }
   }
 
@@ -367,10 +408,10 @@ void AnalogDataAcq(){
   for(int i = 0; i < 4; i++){
     adc_port_value[i] = EEPROM.read(adc_address[i]);
     if(adc_port_value[i] == 1){
-      digitalWrite(adc_ind[i], HIGH);
+      digitalWrite(adc_indicator[i], HIGH);
       }
      else{
-      digitalWrite(adc_ind[i], LOW);
+      digitalWrite(adc_indicator[i], LOW);
       }
     }
 }
@@ -437,7 +478,7 @@ void setRelayData(String pin, String state) {
   EEPROM.write(relay_address[port - 1], value);
   relay_value[port - 1] = EEPROM.read(relay_address[port - 1]);
   digitalWrite(relays[port - 1], relay_value[port - 1]); // relay on/off
-  digitalWrite(relay_ind[port - 1], relay_value[port - 1]); //relay indicator led on/off
+  digitalWrite(relay_indicator[port - 1], relay_value[port - 1]); //relay indicator led on/off
 
   relay_string = "setData,relay," + String(port) + "," + String(value);
   Serial.println(relay_string);
@@ -454,10 +495,10 @@ void setPwmData(String pin, String state) {
       pwm_value[port - 1] = EEPROM.read(pwm_address[port - 1]);
       analogWrite(pwms[port - 1], pwm_value[port - 1]); //pwm level control
       if (pwm_value[port - 1] > 0) {
-        digitalWrite(pwm_ind[port - 1], HIGH); //pwm led indicator on
+        digitalWrite(pwm_indicator[port - 1], HIGH); //pwm led indicator on
       }
       else {
-        digitalWrite(pwm_ind[port - 1], LOW); //pwm led indicator off
+        digitalWrite(pwm_indicator[port - 1], LOW); //pwm led indicator off
       }
     }
     
@@ -470,7 +511,8 @@ void getRelayStatus(String pin) {
   int port = pin.toInt();
   
   String relay_status = "[";
-  if(port == 99){
+  //if(port == 99){/////////////////////////////////////////////////////////////////////////
+  if(port == 0){
     for (int z = 0; z < 4; z++) {
       if(z<3){
         relay_status = relay_status + String(relay_value[z]) + ",";
@@ -490,7 +532,8 @@ void getPwmStatus(String pin) {
   int port = pin.toInt();
   
   String pwm_status = "[";
-  if(port == 99){
+  //if(port == 99){//////////////////////////////////////////////////////////////////////////
+  if(port == 0){
     for (int z = 0; z < 4; z++) {
       if(z<3){
         pwm_status = pwm_status + String(pwm_value[z]) + ",";
@@ -512,10 +555,10 @@ void RelayDataAcq(){
   for (int i = 0; i < 4; i++) {
     relay_value[i] = EEPROM.read(relay_address[i]);
     if (relay_value[i] == 0) {
-      digitalWrite(relay_ind[i], LOW);
+      digitalWrite(relay_indicator[i], LOW);
     }
     else {
-      digitalWrite(relay_ind[i], HIGH);
+      digitalWrite(relay_indicator[i], HIGH);
     }
     delay(1);
   }
@@ -526,30 +569,35 @@ void PwmDataAcq(){
   for (int i = 0; i < 4; i++) {
     pwm_value[i] = EEPROM.read(pwm_address[i]);
     if (pwm_value[i] == 0) {
-      digitalWrite(pwm_ind[i], LOW);
+      digitalWrite(pwm_indicator[i], LOW);
     }
     else {
-      digitalWrite(pwm_ind[i], HIGH);
+      digitalWrite(pwm_indicator[i], HIGH);
     }
     delay(1);
   }
 }
 
-/////////////////////////////////////////////////////////////////////////setIntt
-void setIntt(String pin, String state){
+/////////////////////////////////////////////////////////////////////////setInterrupt
+void setInterrupt(String pin, String state){
   int port = pin.toInt();
+  int value = state.toInt();
   
  if(port == 5 ){
-  EEPROM.write(intt_address_digvalue[0],5);
+  EEPROM.write(intPin_stored_value_address[0],5);
+  EEPROM.write(intPin_mode_address[0],value);
   }
   if(port == 6){
-  EEPROM.write(intt_address_digvalue[1],6);
+  EEPROM.write(intPin_stored_value_address[1],6);
+  EEPROM.write(intPin_mode_address[1],value);
   }
   if(port == 11){
-  EEPROM.write(intt_address_digvalue[2],11);
+  EEPROM.write(intPin_stored_value_address[2],11);
+  EEPROM.write(intPin_mode_address[2],value);
   }
   if(port == 12){
-  EEPROM.write(intt_address_digvalue[3],12);
+  EEPROM.write(intPin_stored_value_address[3],12);
+  EEPROM.write(intPin_mode_address[3],value);
   }
   configuration();
 
@@ -560,21 +608,25 @@ void setIntt(String pin, String state){
   setintt_string = "";
 }
 
-///////////////////////////////////////////////////////////////////////resetintt
-void resetIntt(String pin, String state){
+///////////////////////////////////////////////////////////////////////resetInterrupt
+void resetInterrupt(String pin, String state){
   int port = pin.toInt();
   
  if(port == 5 ){
-  EEPROM.write(intt_address_digvalue[0],255);
+  EEPROM.write(intPin_stored_value_address[0],255);
+  EEPROM.write(intPin_mode_address[0],255);
   }
   if(port == 6){
-  EEPROM.write(intt_address_digvalue[1],255);
+  EEPROM.write(intPin_stored_value_address[1],255);
+  EEPROM.write(intPin_mode_address[1],255);
   }
   if(port == 11){
-  EEPROM.write(intt_address_digvalue[2],255);
+  EEPROM.write(intPin_stored_value_address[2],255);
+  EEPROM.write(intPin_mode_address[2],255);
   }
   if(port == 12){
-  EEPROM.write(intt_address_digvalue[3],255);
+  EEPROM.write(intPin_stored_value_address[3],255);
+  EEPROM.write(intPin_mode_address[3],255);
   }
   configuration();
 
@@ -585,14 +637,28 @@ void resetIntt(String pin, String state){
 ////////////////////////////////////////////////////////configuration
 void configuration(){
   //intt_pin_array[4] = {5,6,11,12};
-  int check_intt_pin = 0;
+  int read_intt_pin_number = 0;
   int intt_pin_array_size = 0;
+  int read_intt_pin_mode = 0;
 
   for(int i = 0; i <4; i++){
-    check_intt_pin = EEPROM.read(intt_address_digvalue[i]); //[5,255,255,255]
+    read_intt_pin_number = EEPROM.read(intPin_stored_value_address[i]); //[5,255,255,255]
+    read_intt_pin_mode = EEPROM.read(intPin_mode_address[i]); //[1,255,255,255]
     intPin_value[i] = 0;
-    if(check_intt_pin<255){
-      intt_pin_array[i] = EEPROM.read(intt_address_digvalue[i]);//[5,0,0,0]// intt_pin_array[4] = {0,0,0,0}, initially declared global
+    if(read_intt_pin_number<255){
+      intt_pin_array[i] = EEPROM.read(intPin_stored_value_address[i]);//[5,0,0,0]// intt_pin_array[4] = {0,0,0,0}, initially declared global
+      if(read_intt_pin_mode == 1){
+        intPin_mode = RISING;
+        }
+      else if(read_intt_pin_mode == 2){
+        intPin_mode = FALLING;
+        }
+      else if(read_intt_pin_mode == 3){
+        intPin_mode = CHANGE;
+        }
+      else if(read_intt_pin_mode == 4){
+        intPin_mode = LOW;
+        }
       intPin_value[i] = 1;
       intt_pin_array_size++; //If intt pin is found, increment the intt_size
       }
@@ -607,25 +673,29 @@ void configuration(){
     INTT_flag = 1;
   }
   if (intPin_value[0] == 1){
-    attachInterrupt(digitalPinToInterrupt(dig[intPin[0]]), int1, RISING);
+    //attachInterrupt(digitalPinToInterrupt(dig[intPin[0]]), int1, RISING);
+    attachInterrupt(digitalPinToInterrupt(dig[intPin[0]]), int1, intPin_mode);
   }
   else{
     detachInterrupt(digitalPinToInterrupt(dig[intPin[0]]));
   }
   if (intPin_value[1] == 1){
-    attachInterrupt(digitalPinToInterrupt(dig[intPin[1]]), int2, RISING);   
+    //attachInterrupt(digitalPinToInterrupt(dig[intPin[1]]), int2, RISING);   
+    attachInterrupt(digitalPinToInterrupt(dig[intPin[1]]), int2, intPin_mode);
   }
   else{
     detachInterrupt(digitalPinToInterrupt(dig[intPin[1]]));
   }
   if (intPin_value[2] == 1){
-    attachInterrupt(digitalPinToInterrupt(dig[intPin[2]]), int3, RISING);
+    //attachInterrupt(digitalPinToInterrupt(dig[intPin[2]]), int3, RISING);
+    attachInterrupt(digitalPinToInterrupt(dig[intPin[1]]), int2, intPin_mode);   
   }
   else{
     detachInterrupt(digitalPinToInterrupt(dig[intPin[2]]));
   }
   if (intPin_value[3] == 1){
-    attachInterrupt(digitalPinToInterrupt(dig[intPin[3]]), int4, RISING);
+    //attachInterrupt(digitalPinToInterrupt(dig[intPin[3]]), int4, RISING);
+    attachInterrupt(digitalPinToInterrupt(dig[intPin[1]]), int2, intPin_mode);   
   }
   else{
     detachInterrupt(digitalPinToInterrupt(dig[intPin[3]]));
@@ -644,8 +714,8 @@ void int3(){
 void int4(){
   intPin_noti[3] = 1;
 }
-////////////////////////////////////////////////////////////////checkIntt
-void checkIntt(){ 
+////////////////////////////////////////////////////////////////checkInterrupt
+void checkInterrupt(){ 
   for (int i = 0; i < 4; i++){
     if (intPin_noti[i] == 1){
       delay(100);
@@ -656,5 +726,52 @@ void checkIntt(){
     }
   }
 }
-////////////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////MODBus
+void modbus() {
+  //Serial3.println("Data: " + String(slave) + ", " + String(func) + ", " + String(regAddr) + ", " + String(coils));
+
+  telegram.u8id = slave; // slave address
+  telegram.u8fct = func; // function code (this one is registers read)
+  telegram.u16RegAdd = regAddr; // start address in slave
+  telegram.u16CoilsNo = coils; // number of elements (coils or registers) to read
+  telegram.au16reg = au16data; // pointer to a memory array in the Arduino
+
+  master.query( telegram ); // send query (only once)
+
+  sentData = true;
+  previousMillis = millis();
+  while (sentData) {
+    currentMillis = millis();
+    master.poll(); // check incoming messages
+    if (master.getState() == COM_IDLE) {
+      sentData = false;
+      break;
+    }
+    if (currentMillis - previousMillis >= 2000) {
+      break;
+    }
+  }
+}
+
+void setModBusData(String message) {
+  modbus_req = true;
+  //[1,3,0000,6] 3-> read holding registers, 6-> write a single host register
+  //below codes move somewhere else
+  String msg = message;
+  String test = msg.substring(msg.indexOf("[") + 1 , msg.indexOf("]"));
+  int deli[3];
+  int pos = -1;
+  //Serial3.println(test);
+
+  for (int i = 0; i < 3; i++) {
+    pos = test.indexOf(",", pos + 1);
+    deli[i] = pos;
+    //Serial.println(pos);
+  }
+
+  slave = (test.substring(0 , deli[0])).toInt();
+  func = (test.substring(deli[0] + 1 , deli[1])).toInt();
+  regAddr = (test.substring(deli[1] + 1 , deli[2])).toInt();
+  coils = (test.substring(deli[2] + 1)).toInt();
+}
 
